@@ -79,7 +79,7 @@ class LocalWorldEstimator:
             trk.pos = trk.pos + trk.vel * dt
             trk.pos[0] = min(max(float(trk.pos[0]), 15.0), self.cfg.world_width - 15.0)
             trk.pos[1] = min(max(float(trk.pos[1]), 15.0), self.cfg.world_height - 15.0)
-            trk.variance += 45.0 * dt
+            trk.variance = min(trk.variance + 12.0 * dt, 64.0)
             trk.age += dt
             if trk.age > self.cfg.target_memory_timeout:
                 stale_ids.append(tid)
@@ -209,7 +209,7 @@ class LocalWorldEstimator:
 
                 n_pos = np.array(n_trk["pos"], dtype=np.float64)
                 n_vel = np.array(n_trk["vel"], dtype=np.float64)
-                n_var = float(n_trk["var"]) + 8.0 * n_hops
+                n_var = min(float(n_trk["var"]) + 3.5, 64.0)
 
                 if tid not in self.tracks:
                     self.tracks[tid] = TargetTrack(
@@ -223,21 +223,29 @@ class LocalWorldEstimator:
                     )
                 else:
                     own = self.tracks[tid]
-                    # Only fuse if neighbor's information is at least as fresh or lower hop count,
-                    # and use TRUE Covariance Intersection (omega in [0,1], so variance NEVER shrinks
-                    # below min(own.variance, n_var) during cyclic neighbor gossip!).
-                    if n_age <= own.age + 0.25:
+                    # Never corrupt a direct onboard sensor lock (hops == 0) with delayed gossip echoes
+                    if own.hops == 0 and own.age < 1e-4:
+                        continue
+                    # Only fuse if neighbor's track is strictly fresher, or same age with no more hops.
+                    # Under Covariance Intersection, fusing neighbor information never inflates variance
+                    # above min(own.variance, n_var) when same age, or n_var when refreshing a stale track.
+                    if n_age < own.age - 1e-4:
                         inv_own = 1.0 / max(own.variance, 1.0)
                         inv_nbr = 1.0 / max(n_var, 1.0)
-                        omega = inv_own / (inv_own + inv_nbr)  # Convex weight in (0, 1)
+                        omega = 0.25 * (inv_own / (inv_own + inv_nbr))
                         own.pos = omega * own.pos + (1.0 - omega) * n_pos
                         own.vel = omega * own.vel + (1.0 - omega) * n_vel
-                        own.variance = 1.0 / (omega * inv_own + (1.0 - omega) * inv_nbr)
-                        if n_age < own.age:
-                            own.age = n_age
-                            own.hops = n_hops
-                        else:
-                            own.hops = min(own.hops, n_hops)
+                        own.variance = n_var
+                        own.age = n_age
+                        own.hops = n_hops
+                    elif abs(n_age - own.age) <= 1e-4 and n_hops <= own.hops:
+                        inv_own = 1.0 / max(own.variance, 1.0)
+                        inv_nbr = 1.0 / max(n_var, 1.0)
+                        omega = inv_own / (inv_own + inv_nbr)
+                        own.pos = omega * own.pos + (1.0 - omega) * n_pos
+                        own.vel = omega * own.vel + (1.0 - omega) * n_vel
+                        own.variance = min(own.variance, n_var)
+                        own.hops = min(own.hops, n_hops)
 
         # Final Negative-Information Check after gossip fusion:
         # Never allow a neighbor's gossip packet to plant a phantom target track inside our own

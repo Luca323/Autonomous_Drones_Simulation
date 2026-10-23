@@ -2,12 +2,19 @@
 
 import ctypes
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 import numpy as np
 
 NATIVE_DIR = Path(__file__).parent
-DLL_PATH = NATIVE_DIR / "fast_core_v2.dll"
+if sys.platform == "win32":
+    LIB_NAME = "fast_core_v2.dll"
+elif sys.platform == "darwin":
+    LIB_NAME = "fast_core_v2.dylib"
+else:
+    LIB_NAME = "fast_core_v2.so"
+DLL_PATH = NATIVE_DIR / LIB_NAME
 CPP_PATH = NATIVE_DIR / "fast_core.cpp"
 
 _LIB: Optional[ctypes.CDLL] = None
@@ -22,23 +29,36 @@ def _load_or_compile_lib() -> Optional[ctypes.CDLL]:
     if not DLL_PATH.exists() or (
         CPP_PATH.exists() and CPP_PATH.stat().st_mtime > DLL_PATH.stat().st_mtime
     ):
+        compile_flags = [
+            "-O3",
+            "-ffast-math",
+            "-shared",
+        ]
+        if sys.platform == "win32":
+            compile_flags.extend(["-static-libgcc", "-static-libstdc++"])
+        else:
+            compile_flags.append("-fPIC")
+
+        tmp_dll = NATIVE_DIR / f"{LIB_NAME}.tmp"
+        old_dll = NATIVE_DIR / f"{LIB_NAME}.old"
         for compiler in [r"C:\msys64\ucrt64\bin\g++.exe", "g++", "clang++"]:
             try:
                 subprocess.run(
-                    [
-                        compiler,
-                        "-O3",
-                        "-ffast-math",
-                        "-shared",
-                        "-static-libgcc",
-                        "-static-libstdc++",
-                        "-o",
-                        str(DLL_PATH),
-                        str(CPP_PATH),
-                    ],
+                    [compiler, *compile_flags, "-o", str(tmp_dll), str(CPP_PATH)],
                     check=True,
                     capture_output=True,
                 )
+                if DLL_PATH.exists():
+                    try:
+                        if old_dll.exists():
+                            old_dll.unlink()
+                    except Exception:
+                        pass
+                    try:
+                        DLL_PATH.rename(old_dll)
+                    except Exception:
+                        pass
+                tmp_dll.replace(DLL_PATH)
                 break
             except Exception:
                 continue

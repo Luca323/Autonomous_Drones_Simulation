@@ -54,6 +54,12 @@ def handle_client_command(msg: Dict[str, Any]) -> Dict[str, Any]:
         val = msg.get("value")
         if key == "controller_mode" and val in ("hybrid", "boids_pursuit", "marl"):
             world.cfg.controller_mode = val
+        elif key == "mission_play" and val in ("weapons_free", "standoff_track", "wide_recon"):
+            world.cfg.mission_play = val
+        elif key == "enable_heterogeneous":
+            world.cfg.enable_heterogeneous = bool(val)
+        elif key == "emcon_radio_silence":
+            world.cfg.emcon_radio_silence = bool(val)
         elif key == "target_behavior" and val in ("evasive", "patrol", "mixed"):
             world.cfg.target_behavior = val
         elif key == "sensor_range":
@@ -92,6 +98,16 @@ def handle_client_command(msg: Dict[str, Any]) -> Dict[str, Any]:
         y = float(msg.get("y", 350.0))
         r = float(msg.get("radius", 42.0))
         world.add_obstacle(x, y, r)
+    elif cmd == "add_jammer":
+        x = float(msg.get("x", 500.0))
+        y = float(msg.get("y", 350.0))
+        r = float(msg.get("radius", 105.0))
+        world.add_jammer(x, y, r)
+    elif cmd == "add_nofly_zone":
+        x = float(msg.get("x", 500.0))
+        y = float(msg.get("y", 350.0))
+        r = float(msg.get("radius", 58.0))
+        world.add_nofly_zone(x, y, r)
     elif cmd == "clear_obstacles":
         world.clear_obstacles()
     elif cmd == "emp_blast":

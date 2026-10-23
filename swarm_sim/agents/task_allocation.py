@@ -50,8 +50,14 @@ class DecentralizedTaskAllocator:
             ty = float(trk.pos[1])
             my_dist = float(((own_pos[0] - tx) ** 2 + (own_pos[1] - ty) ** 2) ** 0.5)
             for pkt in inbox:
+                peer_knows_tid = (pkt.assigned_target_id == tid) or (
+                    pkt.assigned_target_id == -1
+                    and tid in pkt.target_tracks
+                    and not pkt.target_tracks[tid].get("captured", False)
+                )
                 if pkt.assigned_target_id == tid:
                     neighbor_counts[tid] += 1
+                if peer_knows_tid:
                     peer_dist = float(((pkt.pos[0] - tx) ** 2 + (pkt.pos[1] - ty) ** 2) ** 0.5)
                     # Deterministic tie-breaker using sender_id vs drone_id prevents simultaneous swap oscillations
                     if peer_dist + 8.0 < my_dist or (

@@ -1,0 +1,26 @@
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Native C++ binaries (compiled dynamically by swarm_sim/native/__init__.py)
+swarm_sim/native/*.dll
+swarm_sim/native/*.so
+swarm_sim/native/*.dylib
+swarm_sim/native/*.old
+swarm_sim/native/*.tmp
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store

@@ -29,7 +29,9 @@ class TargetManager:
 
     def reset(self, obstacles: List[Obstacle]) -> None:
         self.targets = []
-        self._next_id = 0
+        # Never reset `self._next_id` to 0! Monotonically increasing target IDs prevent
+        # old target tombstones (`cleared_targets`) or stale tracks from colliding with
+        # newly spawned target waves!
         for _ in range(self.cfg.num_targets):
             self.spawn_random_target(obstacles)
 
@@ -130,17 +132,21 @@ class TargetManager:
                 if dist < clearance and dist > 1e-6:
                     u += (diff / dist) * ((clearance - dist) / clearance) * 240.0
 
-            # 4. Wall repulsion
-            wall_pad = 95.0
+            # 4. Strong Wall & Corner Repulsion (prevents evasive targets from wedging into top/corner walls)
+            wall_pad = 115.0
             if t.pos[0] < wall_pad:
-                u[0] += ((wall_pad - t.pos[0]) / wall_pad) * 200.0
+                pen = (wall_pad - t.pos[0]) / wall_pad
+                u[0] = max(u[0], 0.0) + (pen * 420.0)
             elif t.pos[0] > self.cfg.world_width - wall_pad:
-                u[0] -= ((t.pos[0] - (self.cfg.world_width - wall_pad)) / wall_pad) * 200.0
+                pen = (t.pos[0] - (self.cfg.world_width - wall_pad)) / wall_pad
+                u[0] = min(u[0], 0.0) - (pen * 420.0)
 
             if t.pos[1] < wall_pad:
-                u[1] += ((wall_pad - t.pos[1]) / wall_pad) * 200.0
+                pen = (wall_pad - t.pos[1]) / wall_pad
+                u[1] = max(u[1], 0.0) + (pen * 420.0)
             elif t.pos[1] > self.cfg.world_height - wall_pad:
-                u[1] -= ((t.pos[1] - (self.cfg.world_height - wall_pad)) / wall_pad) * 200.0
+                pen = (t.pos[1] - (self.cfg.world_height - wall_pad)) / wall_pad
+                u[1] = min(u[1], 0.0) - (pen * 420.0)
 
             accels[idx] = clip_vector_norm(u, self.cfg.target_max_accel)
 
@@ -180,14 +186,14 @@ class TargetManager:
                     angles = np.sort(np.arctan2(rel_vecs[:, 1], rel_vecs[:, 0]))
                     gaps = np.diff(np.append(angles, angles[0] + 2.0 * np.pi))
                     max_gap = float(np.max(gaps))
-                    # Good encirclement if max angular gap < 195 deg or enough drones within capture_radius
-                    very_close = int(np.sum(dists <= self.cfg.capture_radius * 1.4))
-                    if max_gap < 3.4 or very_close >= 2:
-                        t.capture_progress = min(1.0, t.capture_progress + self.cfg.dt * 0.55)
+                    # Terminal capture if max angular gap < 220 deg OR >= 2 interceptors close within 1.8x capture_radius
+                    very_close = int(np.sum(dists <= self.cfg.capture_radius * 1.8))
+                    if max_gap < 3.85 or very_close >= 2:
+                        t.capture_progress = min(1.0, t.capture_progress + self.cfg.dt * 0.85)
                     else:
-                        t.capture_progress = max(0.0, t.capture_progress - self.cfg.dt * 0.15)
+                        t.capture_progress = max(0.0, t.capture_progress - self.cfg.dt * 0.10)
                 else:
-                    t.capture_progress = max(0.0, t.capture_progress - self.cfg.dt * 0.25)
+                    t.capture_progress = max(0.0, t.capture_progress - self.cfg.dt * 0.15)
 
                 if t.capture_progress >= 1.0:
                     t.captured = True

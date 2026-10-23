@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Decentralized AI Drone Swarm — Tactical Simulator</title>
+  <title>Decentralized Mission Autonomy & C2 — Tactical Swarm Simulator</title>
   <style>
     :root {
-      --bg-dark: #080c14;
-      --panel-bg: #0f1624;
+      --bg-dark: #070b12;
+      --panel-bg: #0d1422;
       --panel-border: #1e2b45;
       --text-main: #e2e8f0;
       --text-muted: #94a3b8;
@@ -34,7 +34,6 @@
       overflow: hidden;
     }
 
-    /* Main Left/Center Tactical Viewport */
     .viewport-col {
       flex: 1;
       display: flex;
@@ -44,45 +43,43 @@
       min-width: 0;
     }
 
-    /* Top Telemetry Header Bar */
     .telemetry-bar {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(8, 1fr);
       gap: 8px;
       background: var(--panel-bg);
       border: 1px solid var(--panel-border);
       border-radius: 8px;
-      padding: 10px 14px;
+      padding: 9px 12px;
     }
 
     .metric-card {
       display: flex;
       flex-direction: column;
       border-right: 1px solid var(--panel-border);
-      padding-right: 8px;
+      padding-right: 6px;
     }
     .metric-card:last-child {
       border-right: none;
     }
     .metric-label {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
     }
     .metric-value {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--accent-cyan);
       margin-top: 2px;
       font-variant-numeric: tabular-nums;
     }
 
-    /* Canvas Wrapper */
     .canvas-container {
       flex: 1;
       position: relative;
-      background: #05080f;
+      background: #04070d;
       border: 1px solid var(--panel-border);
       border-radius: 8px;
       overflow: hidden;
@@ -98,18 +95,18 @@
       display: block;
     }
 
-    /* Legend Overlay inside Canvas */
     .canvas-legend {
       position: absolute;
-      bottom: 12px;
-      left: 12px;
-      background: rgba(15, 22, 36, 0.88);
+      bottom: 10px;
+      left: 10px;
+      background: rgba(13, 20, 34, 0.90);
       border: 1px solid var(--panel-border);
       border-radius: 6px;
-      padding: 8px 12px;
+      padding: 7px 11px;
       display: flex;
-      gap: 14px;
-      font-size: 12px;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 11px;
       pointer-events: none;
       backdrop-filter: blur(4px);
     }
@@ -117,46 +114,45 @@
     .legend-item {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .dot {
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       display: inline-block;
     }
 
-    /* Right Control & Inspector Sidebar */
     .sidebar {
-      width: 370px;
+      width: 390px;
       background: var(--panel-bg);
       border-left: 1px solid var(--panel-border);
       display: flex;
       flex-direction: column;
       overflow-y: auto;
-      padding: 14px;
-      gap: 14px;
+      padding: 12px;
+      gap: 11px;
     }
 
     .section-box {
-      background: rgba(8, 12, 20, 0.55);
+      background: rgba(7, 11, 18, 0.65);
       border: 1px solid var(--panel-border);
       border-radius: 8px;
-      padding: 12px;
+      padding: 10px 12px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
 
     .section-title {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--accent-cyan);
       border-bottom: 1px solid var(--panel-border);
-      padding-bottom: 6px;
+      padding-bottom: 5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -172,9 +168,9 @@
       background: #1e293b;
       color: var(--text-main);
       border: 1px solid #334155;
-      border-radius: 6px;
-      padding: 7px 11px;
-      font-size: 12px;
+      border-radius: 5px;
+      padding: 6px 9px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.15s;
@@ -194,20 +190,22 @@
       border-color: var(--accent-red);
       color: #fca5a5;
     }
-    button.danger:hover {
-      background: rgba(239, 68, 68, 0.35);
+    button.warn {
+      background: rgba(245, 158, 11, 0.16);
+      border-color: var(--accent-amber);
+      color: #fde68a;
     }
 
     .control-group {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
     .control-header {
       display: flex;
       justify-content: space-between;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
     }
 
@@ -217,20 +215,20 @@
       color: var(--text-main);
       border: 1px solid #334155;
       border-radius: 5px;
-      padding: 5px;
-      font-size: 12px;
+      padding: 4px;
+      font-size: 11px;
     }
 
     .checkbox-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      font-size: 12px;
+      gap: 5px;
+      font-size: 11px;
     }
     .checkbox-grid label {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       cursor: pointer;
       color: var(--text-muted);
     }
@@ -238,15 +236,15 @@
     .inspector-kv {
       display: flex;
       justify-content: space-between;
-      font-size: 12px;
-      padding: 3px 0;
+      font-size: 11px;
+      padding: 2.5px 0;
       border-bottom: 1px dashed rgba(255,255,255,0.06);
     }
 
     .badge {
-      padding: 2px 7px;
+      padding: 2px 6px;
       border-radius: 4px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
     }
   </style>
@@ -256,15 +254,19 @@
     <!-- Top Live Telemetry Bar -->
     <div class="telemetry-bar">
       <div class="metric-card">
-        <span class="metric-label">Sim Time</span>
+        <span class="metric-label">Mission Clock</span>
         <span class="metric-value" id="m-time">0.0s</span>
       </div>
       <div class="metric-card">
-        <span class="metric-label">Active Swarm</span>
+        <span class="metric-label">Active Fleet</span>
         <span class="metric-value" id="m-drones">24 / 24</span>
       </div>
       <div class="metric-card">
-        <span class="metric-label">Targets Captured</span>
+        <span class="metric-label">RF Jammed</span>
+        <span class="metric-value" id="m-jammed" style="color:#f87171;">0</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Targets Neutralized</span>
         <span class="metric-value" id="m-targets">0 / 3</span>
       </div>
       <div class="metric-card">
@@ -272,11 +274,11 @@
         <span class="metric-value" id="m-lambda">0.00</span>
       </div>
       <div class="metric-card">
-        <span class="metric-label">DKF Track Error</span>
+        <span class="metric-label">DKF Track RMSE</span>
         <span class="metric-value" id="m-err">0.0 px</span>
       </div>
       <div class="metric-card">
-        <span class="metric-label">Area Certainty</span>
+        <span class="metric-label">ISR Area Coverage</span>
         <span class="metric-value" id="m-cov">0.0%</span>
       </div>
       <div class="metric-card">
@@ -290,18 +292,19 @@
       <canvas id="simCanvas" width="1000" height="700"></canvas>
       <div class="canvas-legend">
         <div class="legend-item"><span class="dot" style="background:#38bdf8;"></span> Searching</div>
-        <div class="legend-item"><span class="dot" style="background:#facc15;"></span> Pursuing</div>
-        <div class="legend-item"><span class="dot" style="background:#a855f7;"></span> Encircling</div>
-        <div class="legend-item"><span class="dot" style="background:#10b981;"></span> Intercepting</div>
-        <div class="legend-item"><span class="dot" style="background:#ef4444;"></span> Evasive Target</div>
-        <div class="legend-item"><span class="dot" style="background:#64748b;"></span> Offline / EMP</div>
+        <div class="legend-item"><span class="dot" style="background:#facc15;"></span> Pro-Nav Pursuit</div>
+        <div class="legend-item"><span class="dot" style="background:#a855f7;"></span> Standoff / Encircle</div>
+        <div class="legend-item"><span class="dot" style="background:#10b981;"></span> Terminal Intercept</div>
+        <div class="legend-item"><span class="dot" style="background:#f97316;"></span> EW Courier Exfil</div>
+        <div class="legend-item"><span class="dot" style="background:#2dd4bf;"></span> Mesh Relay</div>
+        <div class="legend-item"><span class="dot" style="background:#ef4444;"></span> Hostile Target</div>
       </div>
     </div>
   </div>
 
   <!-- Right Control & Inspector Sidebar -->
   <div class="sidebar">
-    <!-- Playback & Simulation Controls -->
+    <!-- Playback Controls -->
     <div class="section-box">
       <div class="section-title">
         <span>Simulation Playback</span>
@@ -310,7 +313,7 @@
       <div class="btn-row">
         <button id="btn-pause">Pause</button>
         <button id="btn-step">Step</button>
-        <button id="btn-reset">Reset Arena</button>
+        <button id="btn-reset">Reset Mission</button>
       </div>
       <div class="control-group">
         <div class="control-header">
@@ -321,19 +324,24 @@
       </div>
     </div>
 
-    <!-- Decentralized AI Architecture Selector -->
+    <!-- Lattice C2 Mission Doctrine & ROE Plays -->
     <div class="section-box">
-      <div class="section-title">Decentralized AI Architecture</div>
+      <div class="section-title">Lattice C2 — Mission Plays & ROE</div>
+      <div class="btn-row">
+        <button class="play-btn active" data-play="weapons_free">Weapons Free (Pro-Nav Strike)</button>
+        <button class="play-btn" data-play="standoff_track">Standoff ISR Shadow</button>
+        <button class="play-btn" data-play="wide_recon">Wide Recon</button>
+      </div>
       <div class="control-group">
-        <div class="control-header"><span>Onboard Controller Stack</span></div>
+        <div class="control-header"><span>Autonomy Stack</span></div>
         <select id="sel-mode">
-          <option value="hybrid">Hybrid: DKF + CBBA Auction + Vortex Encircle + CBF</option>
-          <option value="marl">MARL: DeepSets/Attention Neural Policy + CBF Shield</option>
-          <option value="boids_pursuit">Classical: Reynolds Boids + Greedy Pursuit + CBF</option>
+          <option value="hybrid">Hybrid: DKF + CBBA + Pro-Nav + CBF Shield</option>
+          <option value="marl">MARL: DeepSets/Attention Neural Policy + CBF</option>
+          <option value="boids_pursuit">Classical: Reynolds Boids + Greedy Pursuit</option>
         </select>
       </div>
       <div class="control-group">
-        <div class="control-header"><span>Target Evasion Behavior</span></div>
+        <div class="control-header"><span>Target Evasion Profile</span></div>
         <select id="sel-target-beh">
           <option value="evasive">Smart Evasive + Tangential Juke</option>
           <option value="patrol">Lissajous Patrol</option>
@@ -343,27 +351,31 @@
       <button id="btn-train-marl" style="background:#312e81;border-color:#6366f1;">
         &#9889; Fine-Tune MARL Policy (Live ES Rollouts)
       </button>
-      <div id="marl-status" style="font-size:11px;color:var(--accent-cyan);display:none;"></div>
+      <div id="marl-status" style="font-size:10px;color:var(--accent-cyan);display:none;"></div>
     </div>
 
-    <!-- Interactive Canvas Click Tool -->
+    <!-- Interactive Battlespace Click Tools -->
     <div class="section-box">
-      <div class="section-title">Interactive God-View Click Tool</div>
+      <div class="section-title">Battlespace C2 Click Tools</div>
       <div class="btn-row">
-        <button class="tool-btn active" data-tool="inspect">Inspect Drone</button>
+        <button class="tool-btn active" data-tool="inspect">Inspect Asset</button>
         <button class="tool-btn" data-tool="spawn_target">+ Target</button>
         <button class="tool-btn" data-tool="spawn_drone">+ Drone</button>
       </div>
       <div class="btn-row">
+        <button class="tool-btn danger" data-tool="add_jammer">+ EW Jammer</button>
+        <button class="tool-btn warn" data-tool="add_nofly_zone">+ No-Fly Zone</button>
         <button class="tool-btn" data-tool="add_obstacle">+ Obstacle</button>
-        <button class="tool-btn danger" data-tool="emp_blast">EMP Blast</button>
-        <button id="btn-clear-obs">Clear Obs</button>
+      </div>
+      <div class="btn-row">
+        <button class="tool-btn danger" data-tool="emp_blast">EMP Attrition Strike</button>
+        <button id="btn-clear-obs">Clear Zones/Obs</button>
       </div>
     </div>
 
-    <!-- Swarm & Mesh Hyperparameters -->
+    <!-- Swarm & Contested EW Parameters -->
     <div class="section-box">
-      <div class="section-title">Swarm & Mesh Parameters</div>
+      <div class="section-title">Fleet & Contested EW Parameters</div>
       <div class="control-group">
         <div class="control-header">
           <span>Swarm Size (N)</span>
@@ -373,14 +385,14 @@
       </div>
       <div class="control-group">
         <div class="control-header">
-          <span>Sensor Range (R_sense)</span>
+          <span>Base Sensor Range (R_sense)</span>
           <span id="val-sense">155 px</span>
         </div>
         <input type="range" id="rng-sense" min="70" max="280" step="5" value="155" />
       </div>
       <div class="control-group">
         <div class="control-header">
-          <span>Mesh Comm Range (R_comm)</span>
+          <span>Base Mesh Range (R_comm)</span>
           <span id="val-comm">210 px</span>
         </div>
         <input type="range" id="rng-comm" min="80" max="360" step="10" value="210" />
@@ -393,11 +405,13 @@
         <input type="range" id="rng-loss" min="0" max="0.5" step="0.02" value="0.02" />
       </div>
       <div class="checkbox-grid" style="margin-top:4px;">
+        <label><input type="checkbox" id="chk-hetero" checked /> Heterogeneous Fleet</label>
+        <label><input type="checkbox" id="chk-emcon" /> EMCON Radio Silence</label>
         <label><input type="checkbox" id="chk-los" checked /> LOS Occlusion</label>
         <label><input type="checkbox" id="chk-respawn" checked /> Auto-Wave Targets</label>
         <label><input type="checkbox" id="chk-links" checked /> Show Mesh Links</label>
         <label><input type="checkbox" id="chk-heatmap" checked /> Belief Heatmap</label>
-        <label><input type="checkbox" id="chk-sensors" /> Sensor Rings</label>
+        <label><input type="checkbox" id="chk-sensors" /> Sensor Footprints</label>
         <label><input type="checkbox" id="chk-vectors" checked /> Velocity Vectors</label>
       </div>
     </div>
@@ -405,15 +419,19 @@
     <!-- Single-Drone Ego-Belief Inspector -->
     <div class="section-box">
       <div class="section-title">
-        <span>Onboard Ego-Belief Inspector</span>
-        <span id="insp-id" class="badge" style="background:#1e3a8a;color:#93c5fd;">Drone #0</span>
+        <span>Onboard Asset Telemetry</span>
+        <span id="insp-id" class="badge" style="background:#1e3a8a;color:#93c5fd;">Drone #0 [SCOUT]</span>
       </div>
       <div class="inspector-kv">
-        <span style="color:var(--text-muted)">Autonomous Role</span>
+        <span style="color:var(--text-muted)">Tactical State</span>
         <span id="insp-role" style="font-weight:700;color:#38bdf8;">SEARCHING</span>
       </div>
       <div class="inspector-kv">
-        <span style="color:var(--text-muted)">Assigned Target (CBBA)</span>
+        <span style="color:var(--text-muted)">RF Comms Status</span>
+        <span id="insp-rf" style="color:#10b981;font-weight:600;">ONLINE (MESH)</span>
+      </div>
+      <div class="inspector-kv">
+        <span style="color:var(--text-muted)">Tasked Target & Pro-Nav LOS</span>
         <span id="insp-target">None</span>
       </div>
       <div class="inspector-kv">
@@ -421,11 +439,11 @@
         <span id="insp-cbf">Nominal</span>
       </div>
       <div class="inspector-kv">
-        <span style="color:var(--text-muted)">Known Target Tracks (DKF)</span>
+        <span style="color:var(--text-muted)">Local DKF Tracks</span>
         <span id="insp-tracks">0</span>
       </div>
-      <div id="insp-bids" style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-        Click any drone on the canvas to visualize its private Kalman target estimates, uncertainty ellipses, and local search map.
+      <div id="insp-bids" style="font-size:10.5px;color:var(--text-muted);margin-top:3px;">
+        Click any asset on the map to inspect its private Kalman tracks, covariance ellipses, and CBBA utility bids.
       </div>
     </div>
   </div>

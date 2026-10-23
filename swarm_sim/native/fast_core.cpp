@@ -245,8 +245,12 @@ EXPORT void cpp_compute_frontier_search(
     double hy = (speed > 12.0) ? (own_vy / speed) : std::sin(pref_ang);
 
     // Check if the drone already has a valid uncommitted frontier waypoint:
-    // Keep flying toward prev_wp until either we reach it (< 45 px) or its cell certainty is high (> 0.72).
-    bool has_prev_wp = (prev_wp_x > 10.0 && prev_wp_y > 10.0);
+    // Keep flying toward prev_wp until either we reach it (< 48 px) or its cell certainty is high (> 0.72).
+    // Also reject any waypoint that sits in the outer perimeter border so drones never loiter along walls!
+    bool has_prev_wp = (
+        prev_wp_x > cell_w * 0.9 && prev_wp_x < world_w - cell_w * 0.9 &&
+        prev_wp_y > cell_h * 0.9 && prev_wp_y < world_h - cell_h * 0.9
+    );
     if (has_prev_wp) {
         int pc = std::clamp(static_cast<int>(prev_wp_x / cell_w), 0, cols - 1);
         int pr = std::clamp(static_cast<int>(prev_wp_y / cell_h), 0, rows - 1);
@@ -257,14 +261,19 @@ EXPORT void cpp_compute_frontier_search(
         }
     }
 
-    double best_cx = prev_wp_x;
-    double best_cy = prev_wp_y;
+    double best_cx = world_w * 0.5;
+    double best_cy = world_h * 0.5;
     double best_score = -1e9;
 
     for (int r = 0; r < rows; ++r) {
         double cy = (r + 0.5) * cell_h;
         for (int c = 0; c < cols; ++c) {
             double cx = (c + 0.5) * cell_w;
+
+            // Skip outer border cells (r == 0, r == rows-1, c == 0, c == cols-1):
+            // An interior cell at r=1 or r=rows-2 easily scans the wall with its 155px sensor
+            // without ever pinning the drone against the wall CBF boundary!
+            bool is_border_cell = (r == 0 || r == rows - 1 || c == 0 || c == cols - 1);
 
             // Skip cells inside or too close to obstacles
             bool in_obs = false;
@@ -283,17 +292,16 @@ EXPORT void cpp_compute_frontier_search(
             double dx = cx - own_x;
             double dy = cy - own_y;
             double my_dist = std::hypot(dx, dy);
-            if (my_dist < 35.0) continue; // Don't pick a cell right under our nose
+            if (my_dist < 35.0) continue;
 
-            // Continuous, smooth Voronoi territory penalty (no step discontinuity!)
+            // Continuous, smooth Voronoi territory penalty
             double voronoi_pen = 0.0;
             for (int p = 0; p < n_peers; ++p) {
                 double pdx = cx - peer_pos[p * 2 + 0];
                 double pdy = cy - peer_pos[p * 2 + 1];
                 double p_dist = std::hypot(pdx, pdy);
-                double advantage = my_dist - p_dist; // >0 means peer is closer than us
+                double advantage = my_dist - p_dist;
                 if (advantage > -20.0) {
-                    // Smooth ramp penalty
                     double ratio = std::clamp((advantage + 20.0) / 80.0, 0.0, 1.5);
                     voronoi_pen += 1.15 * ratio;
                 }
@@ -308,12 +316,16 @@ EXPORT void cpp_compute_frontier_search(
                 }
             }
 
+            // Penalize border cells so drones prefer interior patrol tracks and never hug the top/bottom walls
+            double border_pen = is_border_cell ? 0.85 : 0.0;
+
             double cos_sim = (dx * hx + dy * hy) / std::max(my_dist, 1.0);
             double score = uncert * 3.0
                          - 0.0016 * my_dist
                          + 0.65 * cos_sim
                          + wp_hysteresis
-                         - voronoi_pen;
+                         - voronoi_pen
+                         - border_pen;
 
             if (score > best_score) {
                 best_score = score;
@@ -329,7 +341,7 @@ EXPORT void cpp_compute_frontier_search(
     double ux = dir_x / d_norm;
     double uy = dir_y / d_norm;
 
-    // 2. Smooth Peer Dispersion with Rotational Curl (breaks collinear deadlock!)
+    // 2. Smooth Peer Dispersion with Rotational Curl + Soft Wall Repulsion
     double rep_x = 0.0;
     double rep_y = 0.0;
     double spread_radius = sensor_range * 1.15;
@@ -342,10 +354,23 @@ EXPORT void cpp_compute_frontier_search(
             double mag = 0.48 * strength * strength;
             double nx = rx / d;
             double ny = ry / d;
-            // Add 20% rotational curl so two drones facing each other smoothly swirl past
             rep_x += (nx - 0.22 * ny) * mag;
             rep_y += (ny + 0.22 * nx) * mag;
         }
+    }
+
+    // Soft inward wall-repulsion buffer (within 75px of any arena edge) so peer dispersion
+    // can NEVER pin searching drones against the top/bottom/side walls!
+    double wall_pad = 75.0;
+    if (own_x < wall_pad) {
+        rep_x += 0.55 * ((wall_pad - own_x) / wall_pad);
+    } else if (own_x > world_w - wall_pad) {
+        rep_x -= 0.55 * ((own_x - (world_w - wall_pad)) / wall_pad);
+    }
+    if (own_y < wall_pad) {
+        rep_y += 0.55 * ((wall_pad - own_y) / wall_pad);
+    } else if (own_y > world_h - wall_pad) {
+        rep_y -= 0.55 * ((own_y - (world_h - wall_pad)) / wall_pad);
     }
 
     // Clamp repulsion magnitude so it never cancels out forward cruise momentum

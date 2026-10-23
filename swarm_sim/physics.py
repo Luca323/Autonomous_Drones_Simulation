@@ -15,6 +15,24 @@ class Obstacle:
     radius: float
 
 
+@dataclass
+class JammerZone:
+    """Contested Electronic Warfare (EW) RF Jamming Emitter."""
+
+    x: float
+    y: float
+    radius: float
+
+
+@dataclass
+class NoFlyZone:
+    """Operator-designated Keep-Out / No-Fly Zone (NFZ) enforced by the CBF Shield."""
+
+    x: float
+    y: float
+    radius: float
+
+
 def check_los_occluded(
     p1: np.ndarray,
     p2: np.ndarray,
@@ -84,7 +102,7 @@ def step_double_integrator(
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Advance 2D double-integrator kinematics with drag, obstacle bounce/slide, and arena bounds.
-    Uses the compiled C++17 kernel (`fast_core.dll`) when available.
+    Uses the compiled C++17 kernel (`fast_core_v2.dll`) when available.
     """
     n = positions.shape[0]
     if n == 0:
