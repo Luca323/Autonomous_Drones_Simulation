@@ -112,9 +112,8 @@ class SwarmWorld2D:
         # 2. Local peer detections (filtered by asset-specific r_sense)
         sensed_peers: List[Tuple[int, np.ndarray, np.ndarray]] = []
         n = len(self.agents)
-        if self.network.sense_matrix.shape == (n, n):
-            peer_indices = np.where(self.network.sense_matrix[drone_idx])[0]
-            for j in peer_indices:
+        if drone_idx < len(self.network.sense_lists) and self.network.dist_matrix.shape == (n, n):
+            for j in self.network.sense_lists[drone_idx]:
                 if self.network.dist_matrix[drone_idx, j] <= r_sense:
                     sensed_peers.append((int(j), self.positions[j], self.velocities[j]))
         else:
@@ -149,19 +148,21 @@ class SwarmWorld2D:
             self.positions, self.active_mask, self.obstacles, self.jammers, comm_mults
         )
 
-        # 2. Each active drone prepares its broadcast gossip packet
+        lib = get_cpp_lib()
+        include_py_grid = lib is None
+
+        # 2. Each active drone prepares its broadcast gossip packet (zero-copy when C++ handles grid fusion)
         outbox: Dict[int, GossipPacket] = {}
         for i in range(n):
             if self.active_mask[i]:
                 outbox[i] = self.agents[i].prepare_broadcast_packet(
-                    self.positions[i], self.velocities[i]
+                    self.positions[i], self.velocities[i], include_grid=include_py_grid
                 )
 
         # 3. Deliver packets across 1-hop wireless mesh links (respecting EW Jamming & EMCON)
         inboxes = self.network.exchange_packets(outbox, self.active_mask)
 
         # 3b. Batch C++ update of search certainty grids & 1-hop gossip merge
-        lib = get_cpp_lib()
         skip_py_grid = False
         if lib is not None and n > 0:
             rows = self.cfg.grid_rows
@@ -230,13 +231,15 @@ class SwarmWorld2D:
         )
         self.total_collisions += step_cols
 
-        # 6. Step evasive targets & check capture progress (unless ROE is standoff_track / wide_recon)
-        self.target_mgr.step(
+        # 6. Step evasive/armed targets, apply SHORAD drone kills, & check capture progress
+        killed_ids = self.target_mgr.step(
             sim_time=self.sim_time,
             drone_positions=self.positions,
             drone_active=self.active_mask,
             obstacles=self.obstacles,
         )
+        for kid in killed_ids:
+            self.kill_drone(kid)
 
         self.sim_time += self.cfg.dt
         self.step_count += 1
@@ -285,8 +288,8 @@ class SwarmWorld2D:
         n = len(self.agents)
         active_indices = np.where(self.active_mask)[0]
 
-        min_sep = 999.0
-        if len(active_indices) > 1:
+        min_sep = self.network.min_separation
+        if min_sep >= 999.0 and len(active_indices) > 1:
             active_pos = self.positions[active_indices]
             diff = active_pos[:, None, :] - active_pos[None, :, :]
             dists = np.linalg.norm(diff, axis=-1)
@@ -380,6 +383,9 @@ class SwarmWorld2D:
                 "vx": round(float(t.vel[0]), 1),
                 "vy": round(float(t.vel[1]), 1),
                 "captured": t.captured,
+                "armed": t.armed,
+                "weapon_range": round(self.cfg.target_weapon_range, 1),
+                "shot_pos": t.last_shot_pos if t.shot_timer > 0.0 else None,
                 "progress": round(float(t.capture_progress), 3),
                 "trail": t.trail[-25:],
             }

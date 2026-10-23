@@ -1,10 +1,12 @@
 /**
- * Lattice-Style Tactical C2 Visualizer & WebSocket Client
- * for the Decentralized AI Drone Swarm Simulator.
+ * Tactical C2 Visualizer & WebSocket Client
+ * Connects to the Decentralized Swarm Simulator and drives UI & canvas updates.
  */
 
+import { TacticalRenderer, ROLE_COLORS } from "./renderer.js";
+
 const canvas = document.getElementById("simCanvas");
-const ctx = canvas.getContext("2d");
+const renderer = new TacticalRenderer(canvas);
 
 let ws = null;
 let latestState = null;
@@ -18,15 +20,13 @@ const layers = {
   showVectors: true,
 };
 
-const ROLE_COLORS = {
-  SEARCHING: "#38bdf8",
-  PURSUING: "#facc15",
-  ENCIRCLING: "#a855f7",
-  INTERCEPTING: "#10b981",
-  COURIER_EXFIL: "#f97316",
-  RELAYING: "#2dd4bf",
-  OFFLINE: "#475569",
-};
+// Handle high-DPI canvas resizing
+window.addEventListener("resize", () => {
+  renderer.setupDPI();
+  if (latestState) {
+    renderer.render(latestState, layers, selectedDroneId);
+  }
+});
 
 function connectWebSocket() {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -36,14 +36,18 @@ function connectWebSocket() {
     const data = JSON.parse(event.data);
     if (data.event === "marl_trained") {
       const st = document.getElementById("marl-status");
-      st.style.display = "block";
-      st.textContent = `ES Policy Optimized! Return: ${data.result.mean_return_history.join(" → ")}`;
-      document.getElementById("sel-mode").value = "marl";
+      if (st) {
+        st.style.display = "block";
+        st.textContent = `ES Policy Optimized! Return: ${data.result.mean_return_history.join(" → ")}`;
+      }
+      const selMode = document.getElementById("sel-mode");
+      if (selMode) selMode.value = "marl";
       return;
     }
+
     latestState = data;
     updateTelemetryUI(data);
-    renderFrame(data);
+    renderer.render(data, layers, selectedDroneId);
   };
 
   ws.onclose = () => {
@@ -59,6 +63,8 @@ function sendCmd(payload) {
 
 function updateTelemetryUI(state) {
   const m = state.metrics;
+  if (!m) return;
+
   document.getElementById("m-time").textContent = `${state.sim_time.toFixed(1)}s`;
   document.getElementById("m-drones").textContent = `${m.active_drones} / ${m.total_drones}`;
   document.getElementById("m-jammed").textContent = `${m.jammed_drones || 0}`;
@@ -72,13 +78,11 @@ function updateTelemetryUI(state) {
   const pauseBtn = document.getElementById("btn-pause");
   if (state.paused) {
     pill.textContent = "PAUSED";
-    pill.style.background = "#78350f";
-    pill.style.color = "#fcd34d";
+    pill.className = "status-badge paused";
     pauseBtn.textContent = "Resume";
   } else {
     pill.textContent = "RUNNING";
-    pill.style.background = "#065f46";
-    pill.style.color = "#6ee7b7";
+    pill.className = "status-badge running";
     pauseBtn.textContent = "Pause";
   }
 
@@ -86,19 +90,20 @@ function updateTelemetryUI(state) {
   if (insp) {
     selectedDroneId = insp.drone_id;
     document.getElementById("insp-id").textContent = `Drone #${insp.drone_id} [${insp.asset_type}]`;
+
     const roleEl = document.getElementById("insp-role");
     roleEl.textContent = insp.role;
-    roleEl.style.color = ROLE_COLORS[insp.role] || "#fff";
+    roleEl.style.color = ROLE_COLORS[insp.role] || "#38bdf8";
 
     const rfEl = document.getElementById("insp-rf");
     if (!insp.active) {
       rfEl.textContent = "OFFLINE (EMP)";
       rfEl.style.color = "#64748b";
     } else if (insp.jammed) {
-      rfEl.textContent = "RF JAMMED (EW BLACKOUT)";
-      rfEl.style.color = "#ef4444";
+      rfEl.textContent = "RF JAMMED (EW)";
+      rfEl.style.color = "#f43f5e";
     } else if (state.config.emcon_radio_silence) {
-      rfEl.textContent = "EMCON SILENT (PASSIVE)";
+      rfEl.textContent = "EMCON SILENT";
       rfEl.style.color = "#f59e0b";
     } else {
       rfEl.textContent = `ONLINE (R=${insp.effective_comm_range}px)`;
@@ -113,7 +118,7 @@ function updateTelemetryUI(state) {
 
     const cbfEl = document.getElementById("insp-cbf");
     if (insp.cbf_intervened) {
-      cbfEl.textContent = "ACTIVE SHIELDING";
+      cbfEl.textContent = "SHIELDING ACTIVE";
       cbfEl.style.color = "#f59e0b";
     } else {
       cbfEl.textContent = "Nominal";
@@ -126,311 +131,30 @@ function updateTelemetryUI(state) {
     const bidEntries = Object.entries(insp.bids || {});
     if (bidEntries.length > 0) {
       bidsEl.innerHTML =
-        "<strong>Local CBBA Marginal Utility Bids:</strong><br/>" +
-        bidEntries.map(([tid, val]) => `Target #${tid}: <span style="color:#38bdf8">${val}</span>`).join(" | ");
+        "<div style='margin-bottom:4px;color:var(--text-main);font-weight:600;'>Local CBBA Task Bids:</div>" +
+        bidEntries.map(([tid, val]) => `Target #${tid}: <span style="color:#38bdf8">${val}</span>`).join("<br/>");
     } else {
       bidsEl.textContent = "No active target tracks in local memory — executing Voronoi frontier recon.";
     }
   }
 }
 
-function renderFrame(state) {
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
+// --- Tab Switching Logic ---
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
 
-  // 1. Draw Selected Drone's Private Search Certainty Heatmap
-  if (layers.showHeatmap && state.inspector && state.inspector.certainty_grid) {
-    const grid = state.inspector.certainty_grid;
-    const rows = grid.length;
-    const cols = grid[0].length;
-    const cw = W / cols;
-    const ch = H / rows;
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const cert = grid[r][c];
-        if (cert > 0.05) {
-          ctx.fillStyle = `rgba(6, 182, 212, ${cert * 0.13})`;
-          ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5);
-        }
-      }
+    btn.classList.add("active");
+    const targetId = btn.dataset.tab;
+    const targetContent = document.getElementById(targetId);
+    if (targetContent) {
+      targetContent.classList.add("active");
     }
-  }
+  });
+});
 
-  // 2. Tactical coordinate grid
-  ctx.strokeStyle = "rgba(30, 43, 69, 0.42)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= W; x += 100) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, H);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= H; y += 100) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(W, y);
-    ctx.stroke();
-  }
-
-  // 3. Draw Contested EW RF Jamming Zones
-  if (state.jammers) {
-    const pulse = 0.5 + 0.5 * Math.sin(state.sim_time * 4.0);
-    for (const jam of state.jammers) {
-      const grad = ctx.createRadialGradient(jam.x, jam.y, 8, jam.x, jam.y, jam.r);
-      grad.addColorStop(0, `rgba(239, 68, 68, ${0.22 + 0.06 * pulse})`);
-      grad.addColorStop(1, "rgba(239, 68, 68, 0.03)");
-      ctx.fillStyle = grad;
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.55)";
-      ctx.setLineDash([6, 4]);
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(jam.x, jam.y, jam.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Emitter center icon
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.arc(jam.x, jam.y, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(252, 165, 165, 0.85)";
-      ctx.font = "bold 10px monospace";
-      ctx.fillText("EW RF JAMMER", jam.x - 36, jam.y - 10);
-    }
-  }
-
-  // 4. Draw Operator Keep-Out / No-Fly Zones (NFZ)
-  if (state.nofly_zones) {
-    for (const nfz of state.nofly_zones) {
-      ctx.fillStyle = "rgba(245, 158, 11, 0.12)";
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.75)";
-      ctx.setLineDash([8, 4]);
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.arc(nfz.x, nfz.y, nfz.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = "#fcd34d";
-      ctx.font = "bold 10px monospace";
-      ctx.fillText("NO-FLY ZONE (CBF)", nfz.x - 45, nfz.y + 4);
-    }
-  }
-
-  // 5. Draw Wireless Ad-Hoc Mesh Communication Links
-  if (layers.showLinks && state.links) {
-    for (const [i, j, qual] of state.links) {
-      const d1 = state.drones[i];
-      const d2 = state.drones[j];
-      if (!d1 || !d2) continue;
-      const isSelectedLink = i === selectedDroneId || j === selectedDroneId;
-      ctx.strokeStyle = isSelectedLink
-        ? `rgba(56, 189, 248, ${0.45 + 0.5 * qual})`
-        : `rgba(148, 163, 184, ${0.12 + 0.25 * qual})`;
-      ctx.lineWidth = isSelectedLink ? 1.8 : 1.0;
-      ctx.beginPath();
-      ctx.moveTo(d1.x, d1.y);
-      ctx.lineTo(d2.x, d2.y);
-      ctx.stroke();
-    }
-  }
-
-  // 6. Draw Physical Terrain Obstacles
-  for (const obs of state.obstacles) {
-    const grad = ctx.createRadialGradient(obs.x - obs.r * 0.2, obs.y - obs.r * 0.2, 4, obs.x, obs.y, obs.r);
-    grad.addColorStop(0, "#334155");
-    grad.addColorStop(1, "#0f172a");
-    ctx.fillStyle = grad;
-    ctx.strokeStyle = "#475569";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(obs.x, obs.y, obs.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  }
-
-  // 7. Draw Selected Drone's Private DKF Target Tracks & Covariance Ellipses
-  if (state.inspector) {
-    const selDrone = state.drones[state.inspector.drone_id];
-    if (selDrone && selDrone.active) {
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
-      ctx.setLineDash([5, 5]);
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(selDrone.x, selDrone.y, state.inspector.effective_sensor_range, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.strokeStyle = selDrone.jammed ? "rgba(239, 68, 68, 0.35)" : "rgba(139, 92, 246, 0.22)";
-      ctx.beginPath();
-      ctx.arc(selDrone.x, selDrone.y, state.inspector.effective_comm_range, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      const wp = state.inspector.planned_waypoint;
-      if (wp) {
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.55)";
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath();
-        ctx.moveTo(selDrone.x, selDrone.y);
-        ctx.lineTo(wp[0], wp[1]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      for (const trk of state.inspector.private_tracks) {
-        const [tx, ty] = trk.pos;
-        ctx.strokeStyle = "rgba(250, 204, 21, 0.75)";
-        ctx.fillStyle = "rgba(250, 204, 21, 0.12)";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(tx, ty, trk.std_radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(tx - 6, ty);
-        ctx.lineTo(tx + 6, ty);
-        ctx.moveTo(tx, ty - 6);
-        ctx.lineTo(tx, ty + 6);
-        ctx.stroke();
-
-        ctx.fillStyle = "#fde047";
-        ctx.font = "10px monospace";
-        ctx.fillText(`Est T#${trk.target_id} (${trk.hops}h)`, tx + 8, ty - 8);
-      }
-    }
-  }
-
-  // 8. Draw Hostile Targets & Encirclement Rings
-  for (const t of state.targets) {
-    if (t.trail && t.trail.length > 1) {
-      ctx.strokeStyle = t.captured ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.35)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(t.trail[0][0], t.trail[0][1]);
-      for (let k = 1; k < t.trail.length; k++) {
-        ctx.lineTo(t.trail[k][0], t.trail[k][1]);
-      }
-      ctx.stroke();
-    }
-
-    ctx.strokeStyle = t.captured ? "rgba(16, 185, 129, 0.45)" : "rgba(239, 68, 68, 0.28)";
-    ctx.setLineDash([4, 4]);
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, state.config.desired_encircle_radius, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    if (t.progress > 0 && !t.captured) {
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 3.5;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, 16, -Math.PI / 2, -Math.PI / 2 + t.progress * Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = t.captured ? "#10b981" : "#ef4444";
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 11px sans-serif";
-    ctx.fillText(t.captured ? `T#${t.id} [NEUTRALIZED]` : `T#${t.id}`, t.x + 12, t.y + 4);
-  }
-
-  // 9. Draw Heterogeneous Autonomous Swarm Assets
-  for (const d of state.drones) {
-    const color = ROLE_COLORS[d.role] || "#38bdf8";
-
-    if (layers.showSensors && d.active) {
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r_sense || state.config.sensor_range, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    if (layers.showVectors && d.active) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x + d.vx * 0.26, d.y + d.vy * 0.26);
-      ctx.stroke();
-    }
-
-    // Jammed indicator ring
-    if (d.jammed && d.active) {
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.85)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 10.5, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (d.cbf && d.active) {
-      // CBF Safety Shield intervention halo
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.75)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 11, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    if (d.id === selectedDroneId) {
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 13.5, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    // Distinct Airframe Silhouette by Asset Type:
-    // - INTERCEPTOR: Sleek high-speed delta dart
-    // - SCOUT: Wide-wingspan ISR airframe
-    // - RELAY: Diamond comms node
-    const angle = Math.atan2(d.vy, d.vx);
-    ctx.save();
-    ctx.translate(d.x, d.y);
-    ctx.rotate(angle);
-    ctx.fillStyle = color;
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    if (d.asset_type === "SCOUT") {
-      // Wide ISR wings
-      ctx.moveTo(7, 0);
-      ctx.lineTo(-4, -8);
-      ctx.lineTo(-2, 0);
-      ctx.lineTo(-4, 8);
-    } else if (d.asset_type === "RELAY") {
-      // Diamond relay shape
-      ctx.moveTo(7, 0);
-      ctx.lineTo(0, -6);
-      ctx.lineTo(-7, 0);
-      ctx.lineTo(0, 6);
-    } else {
-      // Sleek Interceptor delta
-      ctx.moveTo(9.5, 0);
-      ctx.lineTo(-6.5, -5.0);
-      ctx.lineTo(-3.5, 0);
-      ctx.lineTo(-6.5, 5.0);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-// --- UI Event Listeners ---
+// --- UI Command Listeners ---
 document.getElementById("btn-pause").addEventListener("click", () => sendCmd({ cmd: "pause" }));
 document.getElementById("btn-step").addEventListener("click", () => sendCmd({ cmd: "step_once" }));
 document.getElementById("btn-reset").addEventListener("click", () => sendCmd({ cmd: "reset" }));
@@ -462,6 +186,7 @@ document.getElementById("sel-target-beh").addEventListener("change", (e) => {
 function bindSlider(sliderId, labelId, paramKey, suffix = "", scale = 1, transformDisplay = null) {
   const slider = document.getElementById(sliderId);
   const label = document.getElementById(labelId);
+  if (!slider || !label) return;
   slider.addEventListener("input", () => {
     const v = parseFloat(slider.value);
     label.textContent = transformDisplay ? transformDisplay(v) : `${v * scale}${suffix}`;
@@ -492,6 +217,7 @@ document.getElementById("chk-heatmap").addEventListener("change", (e) => (layers
 document.getElementById("chk-sensors").addEventListener("change", (e) => (layers.showSensors = e.target.checked));
 document.getElementById("chk-vectors").addEventListener("change", (e) => (layers.showVectors = e.target.checked));
 
+// Floating Dock tool selection
 document.querySelectorAll(".tool-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tool-btn").forEach((b) => b.classList.remove("active"));
@@ -500,10 +226,11 @@ document.querySelectorAll(".tool-btn").forEach((btn) => {
   });
 });
 
+// Canvas Interaction (Click handling)
 canvas.addEventListener("click", (e) => {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
+  const scaleX = 1000 / rect.width;
+  const scaleY = 700 / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
 
@@ -519,6 +246,11 @@ canvas.addEventListener("click", (e) => {
     }
     selectedDroneId = bestId;
     sendCmd({ cmd: "select_drone", drone_id: bestId });
+
+    // Auto-switch to telemetry tab when user clicks a drone to inspect
+    if (window.switchTab) {
+      window.switchTab("tab-inspector");
+    }
   } else if (activeClickTool === "spawn_target") {
     sendCmd({ cmd: "spawn_target", x, y });
   } else if (activeClickTool === "spawn_drone") {

@@ -79,3 +79,48 @@ def test_no_oscillating_role_or_waypoint_loops():
     # Mean drone cruise speed should stay healthy (> 45 px/s), never stunned in place
     mean_speed = float(np.mean(speeds_over_time[20:]))
     assert mean_speed > 45.0
+
+
+def test_armed_shorad_target_and_wolfpack_saturation():
+    """
+    Verify that:
+      1. An Armed SHORAD target (`target_behavior="armed"`) actively shoots down an encroaching
+         drone inside `target_weapon_range` when its fire-control cooldown is ready.
+      2. A wolfpack of drones using standoff staging + synchronized terminal sprint can overwhelm
+         the SHORAD cooldown and neutralize the armed target.
+    """
+    cfg = SimulationConfig(
+        num_drones=8,
+        num_targets=1,
+        target_behavior="armed",
+        target_weapon_range=64.0,
+        target_fire_cooldown=0.90,
+        initial_obstacles=[],
+        initial_jammers=[],
+    )
+    world = SwarmWorld2D(cfg, seed=7)
+    tgt = world.target_mgr.targets[0]
+    tgt.pos = np.array([500.0, 350.0])
+    tgt.vel = np.array([0.0, 0.0])
+
+    # Place Drone 0 directly inside the lethal SHORAD weapon envelope (30 px away <= 64 px)
+    # and the rest of the wolfpack on the staging ring (~75 px away)
+    world.positions[0] = np.array([530.0, 350.0])
+    for i in range(1, 8):
+        ang = 2.0 * np.pi * i / 7.0
+        world.positions[i] = tgt.pos + np.array([np.cos(ang), np.sin(ang)]) * 75.0
+
+    # Step 1: Armed target immediately shoots down Drone 0 and enters cooldown
+    world.step()
+    assert not world.active_mask[0]
+    assert tgt.weapon_cooldown > 0.0
+    assert len(tgt.last_shot_pos) == 2
+
+    # Run remaining wolfpack sprint to verify the coalition saturates and captures the armed target
+    for _ in range(160):
+        world.step()
+        if tgt.captured:
+            break
+
+    assert tgt.captured
+    assert int(np.sum(world.active_mask)) >= 4

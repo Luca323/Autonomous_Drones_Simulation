@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import List
 import numpy as np
 from swarm_sim.config import SimulationConfig
-from swarm_sim.physics import Obstacle, clip_vector_norm, step_double_integrator
+from swarm_sim.physics import Obstacle, check_los_occluded, clip_vector_norm, step_double_integrator
 
 
 @dataclass
@@ -15,6 +15,10 @@ class TargetEntity:
     captured: bool = False
     capture_progress: float = 0.0  # 0.0 to 1.0
     phase_offset: float = 0.0
+    armed: bool = False
+    weapon_cooldown: float = 0.0
+    shot_timer: float = 0.0
+    last_shot_pos: List[float] = field(default_factory=list)
     trail: List[List[float]] = field(default_factory=list)
 
 
@@ -49,6 +53,7 @@ class TargetManager:
         angle = float(self.rng.uniform(0.0, 2.0 * np.pi))
         speed = 0.55 * self.cfg.target_max_speed
         v = np.array([np.cos(angle) * speed, np.sin(angle) * speed], dtype=np.float64)
+        is_armed = self.cfg.target_behavior == "armed"
         t = TargetEntity(
             target_id=self._next_id,
             pos=p,
@@ -56,6 +61,7 @@ class TargetManager:
             captured=False,
             capture_progress=0.0,
             phase_offset=float(self.rng.uniform(0.0, 2.0 * np.pi)),
+            armed=is_armed,
         )
         self._next_id += 1
         self.targets.append(t)
@@ -71,6 +77,7 @@ class TargetManager:
             captured=False,
             capture_progress=0.0,
             phase_offset=float(self.rng.uniform(0.0, 2.0 * np.pi)),
+            armed=(self.cfg.target_behavior == "armed"),
         )
         self._next_id += 1
         self.targets.append(t)
@@ -82,9 +89,10 @@ class TargetManager:
         drone_positions: np.ndarray,
         drone_active: np.ndarray,
         obstacles: List[Obstacle],
-    ) -> None:
+    ) -> List[int]:
+        killed_drone_ids: List[int] = []
         if not self.targets:
-            return
+            return killed_drone_ids
 
         m = len(self.targets)
         pos_arr = np.array([t.pos for t in self.targets], dtype=np.float64)
@@ -106,8 +114,11 @@ class TargetManager:
             u_patrol = np.array([np.cos(wander_angle), np.sin(1.3 * wander_angle)]) * 45.0
             u += u_patrol
 
+            # Sync armed flag if target_behavior was toggled live
+            t.armed = self.cfg.target_behavior == "armed"
+
             # 2. Evasion from nearby drones
-            if self.cfg.target_behavior in ("evasive", "mixed") and len(active_drones) > 0:
+            if self.cfg.target_behavior in ("evasive", "mixed", "armed") and len(active_drones) > 0:
                 if self.cfg.target_behavior == "mixed" and (t.target_id % 2 == 1):
                     pass
                 else:
@@ -198,3 +209,34 @@ class TargetManager:
                 if t.capture_progress >= 1.0:
                     t.captured = True
                     t.vel[:] = 0.0
+                    t.shot_timer = 0.0
+                    continue
+
+                # Active SHORAD / CIWS Turret Defense:
+                # If this target is armed and its turret cooldown is ready, it engages the closest
+                # active drone inside `target_weapon_range` with unobstructed Line-of-Sight!
+                t.weapon_cooldown = max(0.0, t.weapon_cooldown - self.cfg.dt)
+                t.shot_timer = max(0.0, t.shot_timer - self.cfg.dt)
+                if t.armed and t.weapon_cooldown <= 0.0:
+                    active_idx = np.where(drone_active)[0]
+                    best_d_idx = -1
+                    best_dist = self.cfg.target_weapon_range
+                    for d_idx in active_idx:
+                        if int(d_idx) in killed_drone_ids:
+                            continue
+                        d_pos = drone_positions[d_idx]
+                        dist_d = float(np.linalg.norm(d_pos - t.pos))
+                        if dist_d <= best_dist:
+                            if not check_los_occluded(t.pos, d_pos, obstacles, margin=-1.0):
+                                best_dist = dist_d
+                                best_d_idx = int(d_idx)
+                    if best_d_idx != -1:
+                        killed_drone_ids.append(best_d_idx)
+                        t.weapon_cooldown = self.cfg.target_fire_cooldown
+                        t.shot_timer = 0.25
+                        t.last_shot_pos = [
+                            round(float(drone_positions[best_d_idx, 0]), 1),
+                            round(float(drone_positions[best_d_idx, 1]), 1),
+                        ]
+
+        return killed_drone_ids

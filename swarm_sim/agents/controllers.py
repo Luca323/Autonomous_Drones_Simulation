@@ -65,8 +65,10 @@ class DecentralizedDroneAgent:
     def effective_comm_range(self) -> float:
         return self.cfg.comm_range * self.comm_mult
 
+    _EMPTY_GRID = np.zeros((1, 1), dtype=np.float32)
+
     def prepare_broadcast_packet(
-        self, own_pos: np.ndarray, own_vel: np.ndarray
+        self, own_pos: np.ndarray, own_vel: np.ndarray, include_grid: bool = True
     ) -> GossipPacket:
         """Create the wireless gossip packet to send to 1-hop neighbors."""
         return GossipPacket(
@@ -78,7 +80,9 @@ class DecentralizedDroneAgent:
             assigned_target_id=self.allocator.assigned_target_id,
             target_bids=self.allocator.bids,
             target_tracks=self.estimator.export_gossip_tracks(),
-            search_grid_summary=self.estimator.certainty_grid,
+            search_grid_summary=(
+                self.estimator.certainty_grid if include_grid else self._EMPTY_GRID
+            ),
         )
 
     def compute_control(
@@ -290,11 +294,18 @@ class DecentralizedDroneAgent:
                 coalition_positions.append(p_pos)
                 seen_ids.add(pid)
 
-        r_encircle = self.cfg.desired_encircle_radius
+        # When facing Armed SHORAD targets, stage on a safe standoff perimeter outside
+        # `target_weapon_range` until the full wolfpack coalition is ready to sprint in simultaneously!
+        is_armed_threat = self.cfg.target_behavior == "armed"
+        r_encircle = (
+            max(self.cfg.desired_encircle_radius, self.cfg.target_weapon_range + 16.0)
+            if is_armed_threat
+            else self.cfg.desired_encircle_radius
+        )
         near_ring_count = sum(
             1
             for p in coalition_positions
-            if ((p[0] - trk.pos[0]) ** 2 + (p[1] - trk.pos[1]) ** 2) < (r_encircle * 1.45) ** 2
+            if ((p[0] - trk.pos[0]) ** 2 + (p[1] - trk.pos[1]) ** 2) < (r_encircle * 1.50) ** 2
         )
 
         # Check Rules of Engagement (ROE) & Asset Type:
@@ -366,7 +377,9 @@ class DecentralizedDroneAgent:
             u_tangent = -u_tangent
 
         radial_err = r_norm - r_active
-        v_radial = -1.65 * radial_err * u_radial
+        # High-speed synchronized wolfpack sprint when `is_intercepting` against an armed SHORAD target!
+        radial_gain = 2.65 if (is_armed_threat and is_intercepting) else 1.65
+        v_radial = -radial_gain * radial_err * u_radial
 
         my_angle = float(np.arctan2(r_vec[1], r_vec[0]))
         angular_push = 0.0

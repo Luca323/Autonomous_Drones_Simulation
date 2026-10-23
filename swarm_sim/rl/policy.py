@@ -226,7 +226,24 @@ class DecentralizedAttentionPolicy:
         joint = np.concatenate([h_ego, h_peer, h_obs])
         # Use zero-centered tanh hidden activation so neural modulation has zero directional bias
         h_mid = _tanh(joint @ self.W_out1 + self.b_out1)
-        raw_out = _tanh(h_mid @ self.W_out2 + self.b_out2 + ego_feat @ self.W_res)
+        # Matrix-free SO(2)-equivariant residual combination over the 5 2D vector basis features
+        res_x = (
+            ego_feat[0] * self.W_res[0, 0]
+            + ego_feat[2] * self.W_res[2, 0]
+            + ego_feat[4] * self.W_res[4, 0]
+            + ego_feat[6] * self.W_res[6, 0]
+            + ego_feat[8] * self.W_res[8, 0]
+        )
+        res_y = (
+            ego_feat[1] * self.W_res[1, 1]
+            + ego_feat[3] * self.W_res[3, 1]
+            + ego_feat[5] * self.W_res[5, 1]
+            + ego_feat[7] * self.W_res[7, 1]
+            + ego_feat[9] * self.W_res[9, 1]
+        )
+        raw_out = _tanh(
+            h_mid @ self.W_out2 + self.b_out2 + np.array([res_x, res_y], dtype=np.float64)
+        )
 
         v_cmd = raw_out * cfg.max_speed
         return clip_vector_norm(v_cmd, cfg.max_speed), new_wp

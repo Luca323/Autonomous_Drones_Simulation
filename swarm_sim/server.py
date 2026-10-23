@@ -60,7 +60,7 @@ def handle_client_command(msg: Dict[str, Any]) -> Dict[str, Any]:
             world.cfg.enable_heterogeneous = bool(val)
         elif key == "emcon_radio_silence":
             world.cfg.emcon_radio_silence = bool(val)
-        elif key == "target_behavior" and val in ("evasive", "patrol", "mixed"):
+        elif key == "target_behavior" and val in ("evasive", "patrol", "mixed", "armed"):
             world.cfg.target_behavior = val
         elif key == "sensor_range":
             world.cfg.sensor_range = float(val)

@@ -49,7 +49,9 @@ class SimulationConfig:
     target_max_speed: float = 78.0
     target_max_accel: float = 150.0
     target_evasion_range: float = 180.0
-    target_behavior: str = "evasive"  # "evasive", "patrol", "mixed"
+    target_behavior: str = "evasive"  # "evasive", "patrol", "mixed", "armed"
+    target_weapon_range: float = 64.0   # Lethal SHORAD turret engagement radius (px)
+    target_fire_cooldown: float = 0.90  # Seconds between SHORAD turret shots
 
     # Decentralized Search Grid parameters
     grid_cols: int = 25

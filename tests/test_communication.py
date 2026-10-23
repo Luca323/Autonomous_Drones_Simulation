@@ -81,3 +81,33 @@ def test_contested_ew_jamming_and_courier_exfiltration():
     assert not np.any(world.network.adj_matrix[0])
     # And Drone 0 should immediately enter COURIER_EXFIL role to escape the jammer and report the target!
     assert world.agents[0].role == "COURIER_EXFIL"
+
+
+def test_matrix_free_connectivity_and_fiedler_value():
+    """
+    Verify that the matrix-free Union-Find + Edge-List Shifted Power Iteration solver
+    accurately computes connected components and algebraic connectivity (Fiedler value).
+    """
+    from swarm_sim.communication import MeshNetwork
+
+    active = np.array([0, 1, 2, 3], dtype=np.int32)
+
+    # 1. Disconnected graph (two components: {0,1} and {2,3}) -> c = 2, lambda_2 = 0.0
+    c_disc, lam_disc = MeshNetwork._compute_connectivity_matrix_free(
+        active, [(0, 1, 0.8), (2, 3, 0.8)], 4
+    )
+    assert c_disc == 2
+    assert lam_disc == 0.0
+
+    # 2. Path graph P_4 (0-1-2-3): exact Fiedler value is 2 * (1 - cos(pi / 4)) = 2 - sqrt(2) ≈ 0.5858
+    c_path, lam_path = MeshNetwork._compute_connectivity_matrix_free(
+        active, [(0, 1, 0.8), (1, 2, 0.8), (2, 3, 0.8)], 4
+    )
+    assert c_path == 1
+    np.testing.assert_allclose(lam_path, 2.0 - np.sqrt(2.0), atol=1e-2)
+
+    # 3. Complete graph K_4: exact Fiedler value is 4.0
+    k4_links = [(i, j, 0.9) for i in range(4) for j in range(i + 1, 4)]
+    c_k4, lam_k4 = MeshNetwork._compute_connectivity_matrix_free(active, k4_links, 4)
+    assert c_k4 == 1
+    np.testing.assert_allclose(lam_k4, 4.0, atol=1e-5)
