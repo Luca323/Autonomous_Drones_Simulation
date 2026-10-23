@@ -18,6 +18,7 @@ class TargetTrack:
     hops: int              # 0 if directly observed this step, >0 if via neighbor gossip
     age: float             # Seconds since last direct observation by whoever originated it
     captured: bool = False
+    source_id: int = -1    # Neighbor drone_id that relayed this track (-1 if direct sensor)
 
 
 class LocalWorldEstimator:
@@ -37,6 +38,9 @@ class LocalWorldEstimator:
         # Remember recently captured or invalidated target IDs -> timestamp / age so stale
         # neighbor gossip cannot resurrect a ghost track!
         self.cleared_targets: Dict[int, float] = {}
+        # Ostrom Principles 4 & 5: Mutual Monitoring peer trust ledger T_ij in [0.05, 1.0]
+        self.peer_trust: Dict[int, float] = {}
+        self.sanctions_applied: int = 0
         self.certainty_grid: np.ndarray = np.zeros(
             (cfg.grid_rows, cfg.grid_cols), dtype=np.float32
         )
@@ -55,6 +59,10 @@ class LocalWorldEstimator:
             dist_sq = (self._gx - float(own_pos[0])) ** 2 + (self._gy - float(own_pos[1])) ** 2
             sensed_mask = dist_sq <= (self.cfg.sensor_range * 0.9) ** 2
             self.certainty_grid[sensed_mask] = 1.0
+
+        # Pitt Forgiveness / Rehabilitation: slowly recover peer trust toward 1.0 over time
+        for pid in list(self.peer_trust.keys()):
+            self.peer_trust[pid] = min(1.0, self.peer_trust[pid] + 0.015 * dt)
 
         # Age out old cleared tombstones after 6 seconds
         expired_tombstones = []
@@ -136,6 +144,7 @@ class LocalWorldEstimator:
                 trk.hops = 0
                 trk.age = 0.0
                 trk.captured = False
+                trk.source_id = -1
 
         # Negative Information (Ghost Track Clearing):
         # If ANY track's estimated position (from our prediction OR just received via gossip)
@@ -157,6 +166,13 @@ class LocalWorldEstimator:
                     ghost_ids.append(tid)
 
         for tid in ghost_ids:
+            src = self.tracks[tid].source_id
+            if src >= 0:
+                # Ostrom Mutual Monitoring: neighbor `src` reported a phantom target inside our
+                # clear sensor FOV where no target exists -> apply graduated trust sanction!
+                cur_t = self.peer_trust.get(src, 1.0)
+                self.peer_trust[src] = max(0.05, cur_t - 0.30)
+                self.sanctions_applied += 1
             del self.tracks[tid]
             self.cleared_targets[tid] = 4.5
 
@@ -207,9 +223,31 @@ class LocalWorldEstimator:
                 if tid in self.cleared_targets and not (n_hops == 1 and float(n_trk["age"]) < 1e-4):
                     continue
 
+                sender_id = pkt.sender_id
+                trust = self.peer_trust.get(sender_id, 1.0)
                 n_pos = np.array(n_trk["pos"], dtype=np.float64)
                 n_vel = np.array(n_trk["vel"], dtype=np.float64)
-                n_var = min(float(n_trk["var"]) + 3.5, 64.0)
+
+                # If we have a direct onboard sensor lock (hops == 0), use it to monitor/verify neighbor's report!
+                if tid in self.tracks and self.tracks[tid].hops == 0 and self.tracks[tid].age < 1e-4:
+                    if n_hops == 1 and n_age <= self.cfg.dt * 1.5:
+                        discrepancy = float(np.linalg.norm(self.tracks[tid].pos - n_pos))
+                        if discrepancy <= 35.0:
+                            # Corroborated report -> boost social trust
+                            self.peer_trust[sender_id] = min(1.0, trust + 0.06)
+                        elif discrepancy > 85.0:
+                            # Contradicts direct sensor truth -> graduated sanction
+                            self.peer_trust[sender_id] = max(0.05, trust - 0.30)
+                            self.sanctions_applied += 1
+                            continue
+                    continue
+
+                # Level 3 Graduated Sanction (Quarantine): reject uncorroborated tracks from untrusted peers
+                if trust < 0.20:
+                    continue
+
+                # Level 1 Graduated Sanction: inflate neighbor variance by 1 / trust^2
+                n_var = min((float(n_trk["var"]) + 3.5) / max(trust * trust, 0.04), 64.0)
 
                 if tid not in self.tracks:
                     self.tracks[tid] = TargetTrack(
@@ -220,12 +258,10 @@ class LocalWorldEstimator:
                         hops=n_hops,
                         age=n_age,
                         captured=False,
+                        source_id=sender_id,
                     )
                 else:
                     own = self.tracks[tid]
-                    # Never corrupt a direct onboard sensor lock (hops == 0) with delayed gossip echoes
-                    if own.hops == 0 and own.age < 1e-4:
-                        continue
                     # Only fuse if neighbor's track is strictly fresher, or same age with no more hops.
                     # Under Covariance Intersection, fusing neighbor information never inflates variance
                     # above min(own.variance, n_var) when same age, or n_var when refreshing a stale track.
@@ -238,6 +274,7 @@ class LocalWorldEstimator:
                         own.variance = n_var
                         own.age = n_age
                         own.hops = n_hops
+                        own.source_id = sender_id
                     elif abs(n_age - own.age) <= 1e-4 and n_hops <= own.hops:
                         inv_own = 1.0 / max(own.variance, 1.0)
                         inv_nbr = 1.0 / max(n_var, 1.0)

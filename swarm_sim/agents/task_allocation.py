@@ -26,6 +26,9 @@ class DecentralizedTaskAllocator:
         own_vel: np.ndarray,
         tracks: Dict[int, TargetTrack],
         inbox: List[GossipPacket],
+        asset_type: str = "INTERCEPTOR",
+        own_energy: float = 1.0,
+        peer_trust: Dict[int, float] = None,
     ) -> int:
         """
         Evaluate utility for each active target track in local belief and select
@@ -50,6 +53,9 @@ class DecentralizedTaskAllocator:
             ty = float(trk.pos[1])
             my_dist = float(((own_pos[0] - tx) ** 2 + (own_pos[1] - ty) ** 2) ** 0.5)
             for pkt in inbox:
+                # Ostrom Level 2 Sanction: discount coalition bids from peers with low social trust (< 0.45)
+                if peer_trust is not None and peer_trust.get(pkt.sender_id, 1.0) < 0.45:
+                    continue
                 peer_knows_tid = (pkt.assigned_target_id == tid) or (
                     pkt.assigned_target_id == -1
                     and tid in pkt.target_tracks
@@ -59,6 +65,9 @@ class DecentralizedTaskAllocator:
                     neighbor_counts[tid] += 1
                 if peer_knows_tid:
                     peer_dist = float(((pkt.pos[0] - tx) ** 2 + (pkt.pos[1] - ty) ** 2) ** 0.5)
+                    # Rescher Canon of Effort: a high-energy reserve outranks an exhausted peer (< 0.35 energy)
+                    if getattr(pkt, "energy", 1.0) < 0.35 and own_energy > 0.60:
+                        continue
                     # Deterministic tie-breaker using sender_id vs drone_id prevents simultaneous swap oscillations
                     if peer_dist + 8.0 < my_dist or (
                         abs(peer_dist - my_dist) <= 8.0 and pkt.sender_id < self.drone_id
@@ -99,11 +108,30 @@ class DecentralizedTaskAllocator:
             # Information confidence factor
             conf_penalty = 0.15 * trk.variance + 4.0 * trk.hops
 
+            # Pitt / Rescher Canons of Distributive Justice:
+            # 1. Canon of Ability: match platform capability (Interceptor strike vs Scout initial eyes)
+            ability_canon = (
+                12.0
+                if asset_type == "INTERCEPTOR"
+                else (10.0 if asset_type == "SCOUT" and neighbor_counts[tid] == 0 else 0.0)
+            )
+            # 2. Canon of Effort / Sacrifice: fresh reserves bid higher than energy-depleted drones
+            effort_canon = 22.0 * (own_energy - 0.55)
+            # 3. Canon of Need: boost priority for under-strength coalitions (1..min_drones-1)
+            need_canon = (
+                18.0
+                if (0 < neighbor_counts[tid] < self.cfg.min_drones_for_capture)
+                else 0.0
+            )
+
             utility = (
                 250.0
                 - 32.0 * t_go
                 + align_bonus
                 + hysteresis
+                + ability_canon
+                + effort_canon
+                + need_canon
                 - over_crowding_penalty
                 - conf_penalty
             )

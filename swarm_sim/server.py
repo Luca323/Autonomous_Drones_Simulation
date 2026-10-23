@@ -49,6 +49,10 @@ def handle_client_command(msg: Dict[str, Any]) -> Dict[str, Any]:
         world.reset()
     elif cmd == "select_drone":
         sim_state["selected_drone_id"] = int(msg.get("drone_id", 0))
+    elif cmd == "spoof_drone":
+        did = int(msg.get("drone_id", 0))
+        world.toggle_spoof_drone(did)
+        sim_state["selected_drone_id"] = did
     elif cmd == "set_param":
         key = msg.get("key")
         val = msg.get("value")

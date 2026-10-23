@@ -302,6 +302,26 @@ export class TacticalRenderer {
         }
 
         // Jammed Indicator Ring
+        // Spoofed (Byzantine) Halo & Micro Energy Bar (Ostrom-Pitt Self-Governance)
+        if (d.spoofed && d.active) {
+          ctx.strokeStyle = "#e879f9";
+          ctx.setLineDash([3, 2]);
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, 13, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#f0abfc";
+          ctx.font = "bold 8.5px monospace";
+          ctx.fillText("SPOOF", d.x - 14, d.y - 14);
+        }
+        if (d.active && d.energy !== undefined && d.energy < 0.98) {
+          const bw = 14;
+          ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+          ctx.fillRect(d.x - bw / 2, d.y + 10, bw, 2.5);
+          ctx.fillStyle = d.energy < 0.35 ? "#f43f5e" : "#38bdf8";
+          ctx.fillRect(d.x - bw / 2, d.y + 10, bw * d.energy, 2.5);
+        }
         if (d.jammed && d.active) {
           ctx.strokeStyle = "rgba(244, 63, 94, 0.85)";
           ctx.lineWidth = 1.4;

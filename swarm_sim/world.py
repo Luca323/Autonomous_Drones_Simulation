@@ -251,6 +251,12 @@ class SwarmWorld2D:
             self.velocities[drone_id] = 0.0
             self.agents[drone_id].role = "OFFLINE"
 
+    def toggle_spoof_drone(self, drone_id: int) -> bool:
+        if 0 <= drone_id < len(self.agents):
+            self.agents[drone_id].spoofed = not self.agents[drone_id].spoofed
+            return self.agents[drone_id].spoofed
+        return False
+
     def emp_blast(self, x: float, y: float, radius: float = 110.0) -> int:
         center = np.array([x, y], dtype=np.float64)
         killed = 0
@@ -323,6 +329,15 @@ class SwarmWorld2D:
                 "asset_type": sel_agent.asset_type,
                 "active": bool(self.active_mask[selected_drone_id]),
                 "role": sel_agent.role,
+                "local_regime": sel_agent.local_regime,
+                "energy": round(sel_agent.energy * 100.0, 1),
+                "mean_trust": round(
+                    float(np.mean(list(sel_agent.estimator.peer_trust.values())))
+                    if sel_agent.estimator.peer_trust
+                    else 1.0,
+                    2,
+                ),
+                "sanctions": sel_agent.estimator.sanctions_applied,
                 "jammed": sel_agent.jammed,
                 "los_rate_deg_s": sel_agent.los_rate_deg_s,
                 "effective_sensor_range": round(sel_agent.effective_sensor_range, 1),
@@ -368,6 +383,9 @@ class SwarmWorld2D:
                     "vy": round(float(self.velocities[i, 1]), 1),
                     "active": bool(self.active_mask[i]),
                     "role": role,
+                    "local_regime": ag.local_regime,
+                    "energy": round(ag.energy, 2),
+                    "spoofed": ag.spoofed,
                     "jammed": ag.jammed,
                     "r_sense": round(ag.effective_sensor_range, 1),
                     "target_id": ag.allocator.assigned_target_id,
@@ -420,6 +438,8 @@ class SwarmWorld2D:
                 "coverage_pct": round(coverage_pct, 1),
                 "mean_est_error": round(mean_est_error, 1),
                 "total_collisions": self.total_collisions,
+                "total_sanctions": int(sum(ag.estimator.sanctions_applied for ag in self.agents)),
+                "spoofed_drones": int(sum(1 for ag in self.agents if ag.spoofed and self.active_mask[ag.drone_id])),
                 "role_counts": role_counts,
             },
             "drones": drones_payload,

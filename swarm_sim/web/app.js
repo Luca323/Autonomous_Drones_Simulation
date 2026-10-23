@@ -92,7 +92,7 @@ function updateTelemetryUI(state) {
     document.getElementById("insp-id").textContent = `Drone #${insp.drone_id} [${insp.asset_type}]`;
 
     const roleEl = document.getElementById("insp-role");
-    roleEl.textContent = insp.role;
+    roleEl.textContent = insp.local_regime ? `${insp.role} [${insp.local_regime}]` : insp.role;
     roleEl.style.color = ROLE_COLORS[insp.role] || "#38bdf8";
 
     const rfEl = document.getElementById("insp-rf");
@@ -125,7 +125,9 @@ function updateTelemetryUI(state) {
       cbfEl.style.color = "#10b981";
     }
 
-    document.getElementById("insp-tracks").textContent = `${insp.private_tracks.length} active`;
+    const trustPct = insp.mean_trust !== undefined ? `${Math.round(insp.mean_trust * 100)}%` : "100%";
+    const nrgPct = insp.energy !== undefined ? `${insp.energy.toFixed(0)}%` : "100%";
+    document.getElementById("insp-tracks").textContent = `${insp.private_tracks.length} trk | Trust ${trustPct} | Energy ${nrgPct}`;
 
     const bidsEl = document.getElementById("insp-bids");
     const bidEntries = Object.entries(insp.bids || {});
@@ -263,6 +265,18 @@ canvas.addEventListener("click", (e) => {
     sendCmd({ cmd: "add_jammer", x, y, radius: 105 });
   } else if (activeClickTool === "add_nofly_zone") {
     sendCmd({ cmd: "add_nofly_zone", x, y, radius: 58 });
+  } else if (activeClickTool === "spoof_drone" && latestState) {
+    let bestId = 0;
+    let bestDist = 1e9;
+    for (const d of latestState.drones) {
+      const dist = Math.hypot(d.x - x, d.y - y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = d.id;
+      }
+    }
+    selectedDroneId = bestId;
+    sendCmd({ cmd: "spoof_drone", drone_id: bestId });
   } else if (activeClickTool === "emp_blast") {
     sendCmd({ cmd: "emp_blast", x, y, radius: 115 });
   }

@@ -22,6 +22,8 @@ class GossipPacket:
     target_bids: Dict[int, float]
     target_tracks: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     search_grid_summary: np.ndarray = field(default_factory=lambda: np.zeros((1, 1)))
+    energy: float = 1.0
+    local_regime: str = "COMMONS_RECON"
 
 
 class MeshNetwork:

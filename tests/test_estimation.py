@@ -49,3 +49,66 @@ def test_ghost_track_clearing_and_single_target_surplus_decoupling():
     ]
     for i in drones_near_old_spot:
         assert 0 not in world.agents[i].estimator.tracks
+
+
+def test_ostrom_pitt_self_governance_trust_and_justice():
+    """
+    Verify the combined Ostrom-Pitt self-organising governance stack:
+      1. Ostrom Principles 4 & 5 (Mutual Monitoring & Graduated Sanctions): When a spoofed peer
+         injects false target tracks that contradict a drone's own sensor FOV, its trust score T_ij
+         is progressively sanctioned down to quarantine (< 0.20).
+      2. Pitt / Rescher Canons of Distributive Justice (Canon of Effort): Fresh high-energy reserves
+         bid higher than energy-depleted drones, allowing depleted drones to rotate to ENERGY_RELIEF.
+    """
+    from swarm_sim.communication import GossipPacket
+
+    cfg = SimulationConfig(num_drones=4, num_targets=1, initial_obstacles=[], initial_jammers=[])
+    world = SwarmWorld2D(cfg, seed=21)
+    ag0 = world.agents[0]
+    own_pos = np.array([300.0, 300.0])
+
+    # 1. Drone 0 scans (300, 300) and sees NO targets
+    ag0.estimator.update_from_local_sensors(own_pos, [], world.rng)
+
+    # Neighbor 99 repeatedly broadcasts phantom target tracks at (310, 310) inside Drone 0's clear FOV
+    for tid_fake in (10, 11, 12):
+        spoof_pkt = GossipPacket(
+            sender_id=99,
+            pos=np.array([340.0, 300.0]),
+            vel=np.zeros(2),
+            role="SEARCHING",
+            asset_type="SCOUT",
+            assigned_target_id=-1,
+            target_bids={},
+            target_tracks={
+                tid_fake: {
+                    "pos": [310.0, 310.0],
+                    "vel": [0.0, 0.0],
+                    "var": 4.0,
+                    "hops": 0,
+                    "age": 0.0,
+                    "captured": False,
+                }
+            },
+        )
+        ag0.estimator.fuse_neighbor_gossip([spoof_pkt], skip_grid=True)
+
+    # Drone 0 must have sanctioned Neighbor 99 into quarantine (trust < 0.20)
+    assert ag0.estimator.sanctions_applied >= 3
+    assert ag0.estimator.peer_trust[99] < 0.20
+
+    # 2. Rescher Canon of Effort: compare task bid of a fresh reserve (energy=1.0) vs depleted (energy=0.22)
+    ag0.estimator.update_from_local_sensors(
+        own_pos, [(0, np.array([380.0, 300.0]), np.zeros(2), False)], world.rng
+    )
+    ag0.allocator.select_target(
+        own_pos, np.zeros(2), ag0.estimator.tracks, [], asset_type="INTERCEPTOR", own_energy=1.0
+    )
+    bid_fresh = ag0.allocator.bids[0]
+
+    ag0.allocator.assigned_target_id = -1
+    ag0.allocator.select_target(
+        own_pos, np.zeros(2), ag0.estimator.tracks, [], asset_type="INTERCEPTOR", own_energy=0.22
+    )
+    bid_depleted = ag0.allocator.bids[0]
+    assert bid_fresh > bid_depleted + 12.0

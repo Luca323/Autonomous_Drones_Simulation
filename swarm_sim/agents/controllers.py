@@ -52,6 +52,10 @@ class DecentralizedDroneAgent:
         self.cbf_intervened: bool = False
         self.jammed: bool = False
         self.los_rate_deg_s: float = 0.0  # Line-of-Sight rotation rate for Pro-Nav telemetry
+        # Ostrom-Pitt Self-Organising State: Endurance Ledger, Byzantine Spoof Flag & Holon Regime
+        self.energy: float = 1.0
+        self.spoofed: bool = False
+        self.local_regime: str = "COMMONS_RECON"
 
     @property
     def effective_max_speed(self) -> float:
@@ -71,6 +75,19 @@ class DecentralizedDroneAgent:
         self, own_pos: np.ndarray, own_vel: np.ndarray, include_grid: bool = True
     ) -> GossipPacket:
         """Create the wireless gossip packet to send to 1-hop neighbors."""
+        tracks_out = self.estimator.export_gossip_tracks()
+        if self.spoofed:
+            # Byzantine / Cyber-Spoofed agent: inject a false phantom target track near neighbors' FOV
+            # so Ostrom Mutual Monitoring & Graduated Sanctions can detect and quarantine this node!
+            fake_tid = 90 + (self.drone_id % 9)
+            tracks_out[fake_tid] = {
+                "pos": [float(own_pos[0] + 35.0), float(own_pos[1] - 25.0)],
+                "vel": [15.0, -10.0],
+                "var": 4.0,
+                "hops": 0,
+                "age": 0.0,
+                "captured": False,
+            }
         return GossipPacket(
             sender_id=self.drone_id,
             pos=own_pos,
@@ -79,10 +96,12 @@ class DecentralizedDroneAgent:
             asset_type=self.asset_type,
             assigned_target_id=self.allocator.assigned_target_id,
             target_bids=self.allocator.bids,
-            target_tracks=self.estimator.export_gossip_tracks(),
+            target_tracks=tracks_out,
             search_grid_summary=(
                 self.estimator.certainty_grid if include_grid else self._EMPTY_GRID
             ),
+            energy=round(self.energy, 3),
+            local_regime=self.local_regime,
         )
 
     def compute_control(
@@ -156,7 +175,30 @@ class DecentralizedDroneAgent:
 
         kp_vel = 4.5
         u_cmd = kp_vel * (self.safe_vel - own_vel) + self.cfg.drag_coeff * own_vel
-        return clip_vector_norm(u_cmd, self.cfg.max_accel * self.speed_mult)
+        accel_cmd = clip_vector_norm(u_cmd, self.cfg.max_accel * self.speed_mult)
+
+        # Update onboard Energy Ledger (Rescher Canon of Effort) & Ostrom Local Constitutional Regime
+        if self.role in ("PURSUING", "INTERCEPTING", "COURIER_EXFIL"):
+            burn = 0.0045 * (float(np.linalg.norm(accel_cmd)) / max(self.cfg.max_accel, 1.0))
+            self.energy = max(0.20, self.energy - burn * self.cfg.dt)
+        else:
+            # Regenerative / low-power cruise recovery during SEARCHING, RELAYING, or standoff ENCIRCLING
+            self.energy = min(1.0, self.energy + 0.008 * self.cfg.dt)
+
+        if self.role == "COURIER_EXFIL":
+            self.local_regime = "EW_COURIER_EXFIL"
+        elif self.role == "RELAYING":
+            self.local_regime = "HOLON_TETHER"
+        elif self.role == "INTERCEPTING":
+            self.local_regime = "WOLFPACK_STRIKE"
+        elif self.role == "ENCIRCLING":
+            self.local_regime = "ENERGY_RELIEF" if self.energy < 0.35 else "SHORAD_STAGE"
+        elif self.role == "PURSUING":
+            self.local_regime = "COALITION_CONVERGE"
+        else:
+            self.local_regime = "COMMONS_RECON"
+
+        return accel_cmd
 
     def _compute_pronav_velocity(
         self,
@@ -219,7 +261,13 @@ class DecentralizedDroneAgent:
         """
         v_max = self.effective_max_speed
         tid = self.allocator.select_target(
-            own_pos, own_vel, self.estimator.tracks, inbox
+            own_pos,
+            own_vel,
+            self.estimator.tracks,
+            inbox,
+            asset_type=self.asset_type,
+            own_energy=self.energy,
+            peer_trust=self.estimator.peer_trust,
         )
 
         # 1. EW Data-Mule / Courier Exfiltration:
@@ -308,11 +356,14 @@ class DecentralizedDroneAgent:
             if ((p[0] - trk.pos[0]) ** 2 + (p[1] - trk.pos[1]) ** 2) < (r_encircle * 1.50) ** 2
         )
 
-        # Check Rules of Engagement (ROE) & Asset Type:
-        # SCOUT assets (or all drones under "standoff_track" ROE) orbit at a wide standoff ISR ring
-        # (1.65x r_encircle) to maintain continuous eye-on-target while INTERCEPTORs close in!
-        standoff_only = (self.cfg.mission_play == "standoff_track") or (
-            self.asset_type == "SCOUT" and near_ring_count >= self.cfg.min_drones_for_capture
+        # Check Rules of Engagement (ROE), Asset Type, & Rescher Canon of Effort (Energy Relief):
+        # SCOUT assets, energy-depleted drones (`energy < 0.32` when teammates are present), or all
+        # drones under "standoff_track" ROE orbit at a wide standoff ring while fresh INTERCEPTORs close in!
+        energy_relief = self.energy < 0.32 and near_ring_count > self.cfg.min_drones_for_capture
+        standoff_only = (
+            (self.cfg.mission_play == "standoff_track")
+            or energy_relief
+            or (self.asset_type == "SCOUT" and near_ring_count >= self.cfg.min_drones_for_capture)
         )
 
         target_near_wall = (
