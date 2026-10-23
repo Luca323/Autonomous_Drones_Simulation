@@ -53,7 +53,9 @@ class TargetManager:
         angle = float(self.rng.uniform(0.0, 2.0 * np.pi))
         speed = 0.55 * self.cfg.target_max_speed
         v = np.array([np.cos(angle) * speed, np.sin(angle) * speed], dtype=np.float64)
-        is_armed = self.cfg.target_behavior == "armed"
+        is_armed = (self.cfg.target_behavior == "armed") or (
+            self.cfg.target_behavior in ("evasive", "mixed") and (self._next_id % 2 == 1)
+        )
         t = TargetEntity(
             target_id=self._next_id,
             pos=p,
@@ -67,9 +69,10 @@ class TargetManager:
         self.targets.append(t)
         return t
 
-    def spawn_at(self, x: float, y: float) -> TargetEntity:
+    def spawn_at(self, x: float, y: float, armed: bool = False) -> TargetEntity:
         angle = float(self.rng.uniform(0.0, 2.0 * np.pi))
         speed = 0.5 * self.cfg.target_max_speed
+        is_armed = armed or (self.cfg.target_behavior == "armed")
         t = TargetEntity(
             target_id=self._next_id,
             pos=np.array([x, y], dtype=np.float64),
@@ -77,7 +80,7 @@ class TargetManager:
             captured=False,
             capture_progress=0.0,
             phase_offset=float(self.rng.uniform(0.0, 2.0 * np.pi)),
-            armed=(self.cfg.target_behavior == "armed"),
+            armed=is_armed,
         )
         self._next_id += 1
         self.targets.append(t)
@@ -114,8 +117,11 @@ class TargetManager:
             u_patrol = np.array([np.cos(wander_angle), np.sin(1.3 * wander_angle)]) * 45.0
             u += u_patrol
 
-            # Sync armed flag if target_behavior was toggled live
-            t.armed = self.cfg.target_behavior == "armed"
+                        # Sync armed flag if target_behavior was toggled live
+            if self.cfg.target_behavior == "armed":
+                t.armed = True
+            elif self.cfg.target_behavior == "patrol":
+                t.armed = False
 
             # 2. Evasion from nearby drones
             if self.cfg.target_behavior in ("evasive", "mixed", "armed") and len(active_drones) > 0:

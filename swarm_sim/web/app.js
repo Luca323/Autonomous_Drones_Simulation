@@ -253,6 +253,8 @@ canvas.addEventListener("click", (e) => {
     }
   } else if (activeClickTool === "spawn_target") {
     sendCmd({ cmd: "spawn_target", x, y });
+  } else if (activeClickTool === "spawn_shorad") {
+    sendCmd({ cmd: "spawn_shorad", x, y });
   } else if (activeClickTool === "spawn_drone") {
     sendCmd({ cmd: "spawn_drone", x, y });
   } else if (activeClickTool === "add_obstacle") {

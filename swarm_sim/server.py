@@ -87,7 +87,11 @@ def handle_client_command(msg: Dict[str, Any]) -> Dict[str, Any]:
     elif cmd == "spawn_target":
         x = float(msg.get("x", 500.0))
         y = float(msg.get("y", 350.0))
-        world.target_mgr.spawn_at(x, y)
+        world.target_mgr.spawn_at(x, y, armed=bool(msg.get("armed", False)))
+    elif cmd == "spawn_shorad":
+        x = float(msg.get("x", 500.0))
+        y = float(msg.get("y", 350.0))
+        world.target_mgr.spawn_at(x, y, armed=True)
     elif cmd == "spawn_drone":
         x = float(msg.get("x", 100.0))
         y = float(msg.get("y", 350.0))

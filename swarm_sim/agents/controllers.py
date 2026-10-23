@@ -296,7 +296,7 @@ class DecentralizedDroneAgent:
 
         # When facing Armed SHORAD targets, stage on a safe standoff perimeter outside
         # `target_weapon_range` until the full wolfpack coalition is ready to sprint in simultaneously!
-        is_armed_threat = self.cfg.target_behavior == "armed"
+        is_armed_threat = (self.cfg.target_behavior == "armed") or (self.cfg.target_behavior in ("evasive", "mixed") and (tid % 2 == 1))
         r_encircle = (
             max(self.cfg.desired_encircle_radius, self.cfg.target_weapon_range + 16.0)
             if is_armed_threat
